@@ -320,6 +320,132 @@ WSL restart karo:
 wsl --shutdown
 wsl
 
+
+
+How to third working machine
+🌐 Scenario
+
+Current setup:
+
+Predator (Linux) → nginx reverse proxy
+
+WSL (Windows) → Ollama running
+
+Predator shows model via reverse proxy from WSL
+
+Goal:
+
+Add another Linux machine as a working node for Ollama.
+
+Predator should reverse proxy requests to all working nodes.
+
+Each working node has Ollama running as a systemd service.
+
+1️⃣ On the New Linux Node (Working Node)
+
+Install Ollama
+
+Follow same installation as WSL node: download .deb or tar.gz and install.
+
+Create permanent Ollama service
+
+sudo nano /etc/systemd/system/ollama.service
+
+
+Paste:
+
+[Unit]
+Description=Ollama AI Server
+After=network.target
+
+[Service]
+Type=simple
+User=jared           # replace with your user
+WorkingDirectory=/home/jared
+ExecStart=/usr/local/bin/ollama serve
+Environment="OLLAMA_HOST=0.0.0.0"
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+
+
+Enable and start service
+
+sudo systemctl daemon-reload
+sudo systemctl enable ollama
+sudo systemctl start ollama
+sudo systemctl status ollama   # check it’s running
+
+
+Check if listening
+
+ss -tulnp | grep 11434
+
+
+Should show 0.0.0.0:11434
+
+2️⃣ Update Predator nginx Reverse Proxy
+
+Edit Ollama nginx upstream
+
+sudo nano /etc/nginx/conf.d/ollama.conf
+
+
+Example for two working nodes:
+
+upstream ollama_cluster {
+    server  172.23.112.1:11434;   # WSL node
+    server  10.0.0.220:11434;     # New Linux node
+}
+
+server {
+    listen 11434;
+
+    location / {
+        proxy_pass http://ollama_cluster;
+        proxy_set_header Host $host;
+    }
+}
+
+
+Test nginx config
+
+sudo nginx -t
+
+
+Reload nginx
+
+sudo systemctl reload nginx
+
+3️⃣ Verify Setup
+
+Predator → All nodes
+
+curl http://localhost:11434/api/tags
+
+
+Response should show models from all nodes.
+
+Load balancing:
+
+nginx will round-robin by default across nodes.
+
+Optional: configure least_conn or ip_hash if needed.
+
+4️⃣ Notes / Best Practices
+
+Predator Ollama OFF, only nginx runs → it proxies to nodes.
+
+Each working node Ollama ON and enabled.
+
+If you add more nodes, just add node IP:11434 to upstream and reload nginx.
+
+Use same model names across nodes if you want uniform availability.
+
+For Windows nodes, use portproxy if Predator can’t access WSL IP directly.
+
 License
 
 MIT License © 2026
